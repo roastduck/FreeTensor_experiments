@@ -1,0 +1,3 @@
+[submodule "FreeTensor"]
+	path = FreeTensor
+	url = git@github.com:roastduck/FreeTensor.git
