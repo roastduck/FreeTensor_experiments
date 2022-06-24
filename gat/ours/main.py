@@ -32,20 +32,20 @@ def compile_all(num_v, num_e, feat_len, device):
 
     @ft.transform
     def inference(ptr, idx, feat, weight, attn_l, attn_r, y):
-        ptr: ft.Var[(num_v + 1,), "int32", "input"]
-        idx: ft.Var[(num_e,), "int32", "input"]
+        ptr: ft.Var[(num_v + 1, ), "int32", "input"]
+        idx: ft.Var[(num_e, ), "int32", "input"]
         feat: ft.Var[(num_v, feat_len), "float32", "input"]
         weight: ft.Var[(feat_len, feat_len), "float32", "input"]
-        attn_l: ft.Var[(feat_len,), "float32", "input"]
-        attn_r: ft.Var[(feat_len,), "float32", "input"]
+        attn_l: ft.Var[(feat_len, ), "float32", "input"]
+        attn_r: ft.Var[(feat_len, ), "float32", "input"]
         y: ft.Var[(num_v, feat_len), "float32", "output"]
 
         feat2 = matmul(feat, weight)
         att_l = matmul(feat2, attn_l)
         att_r = matmul(feat2, attn_r)
 
-        edge = ft.empty((num_e,), "float32")
-        edge_exp = ft.empty((num_e,), "float32")
+        edge = ft.empty((num_e, ), "float32")
+        edge_exp = ft.empty((num_e, ), "float32")
         #! nid: Li
         #! no_deps: edge
         #! no_deps: edge_exp
@@ -161,18 +161,18 @@ if __name__ == '__main__':
         assert device == 'cpu'
         ir_dev = ft.Device(ft.CPU())
 
-    ptr = ft.Array(ptr, ir_dev)
-    idx = ft.Array(idx, ir_dev)
-    x = ft.Array(x, ir_dev)
-    w = ft.Array(w, ir_dev)
-    w_attn_1 = ft.Array(w_attn_1, ir_dev)
-    w_attn_2 = ft.Array(w_attn_2, ir_dev)
-    y = ft.Array(y, ir_dev)
-    d_x = ft.Array(d_x, ir_dev)
-    d_w = ft.Array(d_w, ir_dev)
-    d_w_attn_1 = ft.Array(d_w_attn_1, ir_dev)
-    d_w_attn_2 = ft.Array(d_w_attn_2, ir_dev)
-    d_y = ft.Array(d_y, ir_dev)
+    ptr = ft.Array(ptr)
+    idx = ft.Array(idx)
+    x = ft.Array(x)
+    w = ft.Array(w)
+    w_attn_1 = ft.Array(w_attn_1)
+    w_attn_2 = ft.Array(w_attn_2)
+    y = ft.Array(y)
+    d_x = ft.Array(d_x)
+    d_w = ft.Array(d_w)
+    d_w_attn_1 = ft.Array(d_w_attn_1)
+    d_w_attn_2 = ft.Array(d_w_attn_2)
+    d_y = ft.Array(d_y)
 
     with ir_dev:
         inference, forward, backward = compile_all(num_v, num_e, feat_len,

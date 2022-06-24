@@ -43,7 +43,7 @@ def compile_all(h, w, n_verts, n_faces, device, ad_save_all):
 
     @ft.inline
     def sub(v1, v2):
-        y = ft.empty((2,), "float32")
+        y = ft.empty((2, ), "float32")
         y[0] = v1[0] - v2[0]
         y[1] = v1[1] - v2[1]
         return y
@@ -62,12 +62,12 @@ def compile_all(h, w, n_verts, n_faces, device, ad_save_all):
 
             for j in range(h):
                 for k in range(w):
-                    pixel = ft.empty((2,), "float32")
+                    pixel = ft.empty((2, ), "float32")
                     pixel[0] = 1. / (h - 1) * j
                     pixel[1] = 1. / (w - 1) * k
 
-                    e_cp = ft.empty((3,), "float32")
-                    e_dist = ft.empty((3,), "float32")
+                    e_cp = ft.empty((3, ), "float32")
+                    e_dist = ft.empty((3, ), "float32")
                     for p in range(3):
                         cp = cross_product(sub(pixel, v[p]),
                                            sub(v[(p + 1) % 3], v[p]))
@@ -173,15 +173,16 @@ if __name__ == '__main__':
         assert device == 'cpu'
         ir_dev = ft.Device(ft.CPU())
 
-    vertices = ft.Array(vertices, ir_dev)
-    faces = ft.Array(faces, ir_dev)
-    y = ft.Array(y, ir_dev)
-    d_y = ft.Array(d_y, ir_dev)
-    d_vertices = ft.Array(d_vertices, ir_dev)
+    vertices = ft.Array(vertices)
+    faces = ft.Array(faces)
+    y = ft.Array(y)
+    d_y = ft.Array(d_y)
+    d_vertices = ft.Array(d_vertices)
 
     with ir_dev:
         inference, forward, backward = compile_all(h, w, n_verts, n_faces,
-                                                   ir_dev, cmd_args.ad_save_all)
+                                                   ir_dev,
+                                                   cmd_args.ad_save_all)
 
     print(
         f"{cmd_args.warmup_num} warmup, {cmd_args.test_num} repeats for evalution"

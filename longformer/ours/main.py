@@ -10,8 +10,8 @@ sys.path.append('../..')
 from common.numpy.io import load_txt, store_txt
 
 
-def compile_all(w, dilation, dilation_heads, n_heads, seq_len, feat_len, device,
-                ad_save_all):
+def compile_all(w, dilation, dilation_heads, n_heads, seq_len, feat_len,
+                device, ad_save_all):
 
     @ft.transform
     def inference(Q, K, V, Y):
@@ -21,39 +21,40 @@ def compile_all(w, dilation, dilation_heads, n_heads, seq_len, feat_len, device,
         Y: ft.Var[(n_heads, seq_len, feat_len), "float32", "output"]
         for i in range(n_heads):
             for j in range(seq_len):
-                dot = ft.empty((2 * w + 1,), "float32")
+                dot = ft.empty((2 * w + 1, ), "float32")
                 for k in range(-w, w + 1):
                     dot[k + w] = 0
-                    if j + ft.if_then_else(
-                            i >= dilation_heads, k,
-                            k * dilation) >= 0 and j + ft.if_then_else(
-                                i >= dilation_heads, k, k * dilation) < seq_len:
+                    if j + ft.if_then_else(i >= dilation_heads, k, k * dilation
+                                           ) >= 0 and j + ft.if_then_else(
+                                               i >= dilation_heads, k,
+                                               k * dilation) < seq_len:
                         for p in range(feat_len):
-                            dot[k + w] += Q[i, j, p] * K[i, j + ft.if_then_else(
-                                i >= dilation_heads, k, k * dilation), p]
+                            dot[k +
+                                w] += Q[i, j, p] * K[i, j + ft.if_then_else(
+                                    i >= dilation_heads, k, k * dilation), p]
 
                 maxval = ft.empty((), "float32")
                 maxval[()] = -float("inf")
                 for k in range(2 * w + 1):
                     maxval[()] = ft.max(maxval[()], dot[k])
-                expval = ft.empty((2 * w + 1,), "float32")
+                expval = ft.empty((2 * w + 1, ), "float32")
                 for k in range(2 * w + 1):
                     expval[k] = ft.exp(dot[k] - maxval[()])
                 expsum = ft.empty((), "float32")
                 expsum[()] = 0
                 for k in range(2 * w + 1):
                     expsum[()] += expval[k]
-                attn = ft.empty((2 * w + 1,), "float32")
+                attn = ft.empty((2 * w + 1, ), "float32")
                 for k in range(2 * w + 1):
                     attn[k] = expval[k] / expsum[()] / math.sqrt(feat_len)
 
                 for p in range(feat_len):
                     Y[i, j, p] = 0
                 for k in range(-w, w + 1):
-                    if j + ft.if_then_else(
-                            i >= dilation_heads, k,
-                            k * dilation) >= 0 and j + ft.if_then_else(
-                                i >= dilation_heads, k, k * dilation) < seq_len:
+                    if j + ft.if_then_else(i >= dilation_heads, k, k * dilation
+                                           ) >= 0 and j + ft.if_then_else(
+                                               i >= dilation_heads, k,
+                                               k * dilation) < seq_len:
                         for p in range(feat_len):
                             Y[i, j,
                               p] += attn[k + w] * V[i, j + ft.if_then_else(
@@ -143,19 +144,20 @@ if __name__ == '__main__':
         assert device == 'cpu'
         ir_dev = ft.Device(ft.CPU())
 
-    q = ft.Array(q, ir_dev)
-    k = ft.Array(k, ir_dev)
-    v = ft.Array(v, ir_dev)
-    y = ft.Array(y, ir_dev)
-    d_q = ft.Array(d_q, ir_dev)
-    d_k = ft.Array(d_k, ir_dev)
-    d_v = ft.Array(d_v, ir_dev)
-    d_y = ft.Array(d_y, ir_dev)
+    q = ft.Array(q)
+    k = ft.Array(k)
+    v = ft.Array(v)
+    y = ft.Array(y)
+    d_q = ft.Array(d_q)
+    d_k = ft.Array(d_k)
+    d_v = ft.Array(d_v)
+    d_y = ft.Array(d_y)
 
     with ir_dev:
         inference, forward, backward = compile_all(w, dilation, dilation_heads,
                                                    n_heads, seq_len, feat_len,
-                                                   ir_dev, cmd_args.ad_save_all)
+                                                   ir_dev,
+                                                   cmd_args.ad_save_all)
 
     print(
         f"{cmd_args.warmup_num} warmup, {cmd_args.test_num} repeats for evalution"
