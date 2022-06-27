@@ -32,20 +32,20 @@ def compile_all(num_v, num_e, feat_len, device):
 
     @ft.transform
     def inference(ptr, idx, feat, weight, attn_l, attn_r, y):
-        ptr: ft.Var[(num_v + 1, ), "int32", "input"]
-        idx: ft.Var[(num_e, ), "int32", "input"]
+        ptr: ft.Var[(num_v + 1,), "int32", "input"]
+        idx: ft.Var[(num_e,), "int32", "input"]
         feat: ft.Var[(num_v, feat_len), "float32", "input"]
         weight: ft.Var[(feat_len, feat_len), "float32", "input"]
-        attn_l: ft.Var[(feat_len, ), "float32", "input"]
-        attn_r: ft.Var[(feat_len, ), "float32", "input"]
+        attn_l: ft.Var[(feat_len,), "float32", "input"]
+        attn_r: ft.Var[(feat_len,), "float32", "input"]
         y: ft.Var[(num_v, feat_len), "float32", "output"]
 
         feat2 = matmul(feat, weight)
         att_l = matmul(feat2, attn_l)
         att_r = matmul(feat2, attn_r)
 
-        edge = ft.empty((num_e, ), "float32")
-        edge_exp = ft.empty((num_e, ), "float32")
+        edge = ft.empty((num_e,), "float32")
+        edge_exp = ft.empty((num_e,), "float32")
         #! nid: Li
         #! no_deps: edge
         #! no_deps: edge_exp

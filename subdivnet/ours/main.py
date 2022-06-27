@@ -24,9 +24,9 @@ def compile_all(n_faces, in_feats, out_feats, device, ad_save_all):
         y: ft.Var[(n_faces, out_feats), "float32", "output"]
 
         for i in range(n_faces):
-            sum1 = zeros((in_feats, ), "float32")
-            sum2 = zeros((in_feats, ), "float32")
-            sum3 = zeros((in_feats, ), "float32")
+            sum1 = zeros((in_feats,), "float32")
+            sum2 = zeros((in_feats,), "float32")
+            sum3 = zeros((in_feats,), "float32")
             for p in range(3):
                 sum1[:] += x[adj[i, p]]
                 sum2[:] += abs(x[adj[i, p]] - x[adj[i, (p + 1) % 3]])
@@ -141,9 +141,8 @@ if __name__ == '__main__':
     d_y = ft.Array(d_y)
 
     with ir_dev:
-        inference, forward, backward = compile_all(n_faces, in_feats,
-                                                   out_feats, ir_dev,
-                                                   cmd_args.ad_save_all)
+        inference, forward, backward = compile_all(n_faces, in_feats, out_feats,
+                                                   ir_dev, cmd_args.ad_save_all)
 
     print(
         f"{cmd_args.warmup_num} warmup, {cmd_args.test_num} repeats for evalution"

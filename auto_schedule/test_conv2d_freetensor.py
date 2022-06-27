@@ -14,7 +14,7 @@ def test_c2d():
     def f(x, w, b, o):
         x: ft.Var[(N, CI, H, W), "float32", "input", "gpu/global"]
         w: ft.Var[(CO, CI, KH, KW), "float32", "input", "gpu/global"]
-        b: ft.Var[(CO, ), "float32", "input", "gpu/global"]
+        b: ft.Var[(CO,), "float32", "input", "gpu/global"]
         o: ft.Var[(N, CO, H - KH + 1, W - KW + 1), "float32", "output",
                   "gpu/global"]
         y = ft.empty((N, CO, H - KH + 1, W - KW + 1), "float32", "gpu/local")
@@ -34,7 +34,7 @@ def test_c2d():
     # y_np = np.zeros((a, a), dtype="float32")
     x_np = np.zeros((N, CI, H, W), dtype="float32")
     w_np = np.zeros((CO, CI, KH, KW), dtype="float32")
-    b_np = np.zeros((CO, ), dtype="float32")
+    b_np = np.zeros((CO,), dtype="float32")
     o_np = np.zeros((N, CO, H - KH + 1, W - KW + 1), dtype="float32")
     # u_np = np.zeros((m, m), dtype="float32")
     # y_np = np.zeros((a, b), dtype="float32")

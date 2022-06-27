@@ -6,22 +6,31 @@ from tvm import te, auto_scheduler, topi
 from tvm.topi.testing import conv2d_nchw_python
 from time import time
 
+
 @auto_scheduler.register_workload
 def conv2d_layer(N, H, W, CO, CI, KH, KW, stride, padding):
     data = te.placeholder((N, CI, H, W), name="data")
     kernel = te.placeholder((CO, CI, KH, KW), name="kernel")
     bias = te.placeholder((1, CO, 1, 1), name="bias")
-    conv = topi.nn.conv2d_nchw(data, kernel, stride, padding, dilation=1, out_dtype="float32")
+    conv = topi.nn.conv2d_nchw(data,
+                               kernel,
+                               stride,
+                               padding,
+                               dilation=1,
+                               out_dtype="float32")
     out = topi.nn.relu(conv + bias)
     return [data, kernel, bias, out]
+
 
 target = tvm.target.Target("cuda")
 
 # Use the last layer in ResNet-50
-N, H, W, CO, CI, KH, KW, strides, padding = 1, 7, 7, 512, 512, 3, 3, (1, 1), (0, 0)
-task = auto_scheduler.SearchTask(
-    func=conv2d_layer, args=(N, H, W, CO, CI, KH, KW, strides, padding), target=target
-)
+N, H, W, CO, CI, KH, KW, strides, padding = 1, 7, 7, 512, 512, 3, 3, (1, 1), (0,
+                                                                              0)
+task = auto_scheduler.SearchTask(func=conv2d_layer,
+                                 args=(N, H, W, CO, CI, KH, KW, strides,
+                                       padding),
+                                 target=target)
 
 # Inspect the computational graph
 print("Computational DAG:")
@@ -69,14 +78,12 @@ np.testing.assert_allclose(out_np, out_tvm.numpy(), rtol=1e-3)
 
 # Evaluate execution time
 evaluator = func.time_evaluator(func.entry_name, dev, min_repeat_ms=500)
-print(
-    "Execution time of this operator: %.3f ms"
-    % (np.median(evaluator(data_tvm, weight_tvm, bias_tvm, out_tvm).results) * 1000)
-)
+print("Execution time of this operator: %.3f ms" %
+      (np.median(evaluator(data_tvm, weight_tvm, bias_tvm, out_tvm).results) *
+       1000))
 
 print("Equivalent python schedule:")
 print(task.print_best(log_file, print_mode="schedule"))
 
 print("CUDA source code:")
 print(task.print_best(log_file, print_mode="cuda"))
-
