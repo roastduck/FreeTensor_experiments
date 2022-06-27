@@ -60,13 +60,18 @@ def test_matmul():
     z_np = np.zeros((a, a), dtype="float32")
     # u_np = np.zeros((m, m), dtype="float32")
     # y_np = np.zeros((a, b), dtype="float32")
-    w_arr = ft.Array(w_np, device)
-    x_arr = ft.Array(x_np, device)
-    c_arr = ft.Array(c_np, device)
-    z_arr = ft.Array(z_np, device)
+    w_arr = ft.Array(w_np)
+    x_arr = ft.Array(x_np)
+    c_arr = ft.Array(c_np)
+    z_arr = ft.Array(z_np)
     # u_arr = ft.Array(u_np, device)
     print("Start constructing...")
-    s = ft.AutoSchedule(s, target, device, 128, tag="matmul", min_block_size=256)
+    s = ft.AutoSchedule(s,
+                        target,
+                        device,
+                        128,
+                        tag="matmul",
+                        min_block_size=256)
     s.set_params(w=w_arr, x=x_arr, c=c_arr, z=z_arr)
     # s.set_params(w=w_arr, x=x_arr, y=y_arr)
     print("Start running...")
@@ -80,4 +85,3 @@ def test_matmul():
 
 if __name__ == '__main__':
     test_matmul()
-

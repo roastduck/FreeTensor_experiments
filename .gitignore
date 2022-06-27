@@ -1,6 +1,9 @@
 .ipynb_checkpoints
 *.pyc
 
+# XGBoost
+*.model
+
 # Error logs
 .z3-trace
 
