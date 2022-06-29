@@ -44,7 +44,12 @@ def test_c2d():
     o_arr = ft.Array(o_np)
     # u_arr = ft.Array(u_np, device)
     print("Start constructing...")
-    s = ft.AutoSchedule(s, target, device, 512, tag="c2d", min_block_size=64)
+    s = ft.AutoSchedule(s,
+                        target,
+                        device,
+                        tag="c2d",
+                        min_block_size=64,
+                        verbose=2)
     s.set_params(w=w_arr, x=x_arr, b=b_arr, o=o_arr)
     # s.set_params(w=w_arr, x=x_arr, y=y_arr)
     print("Start running...")

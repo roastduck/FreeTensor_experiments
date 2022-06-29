@@ -69,9 +69,9 @@ def test_matmul():
     s = ft.AutoSchedule(s,
                         target,
                         device,
-                        128,
                         tag="matmul",
-                        min_block_size=256)
+                        min_block_size=256,
+                        verbose=2)
     s.set_params(w=w_arr, x=x_arr, c=c_arr, z=z_arr)
     # s.set_params(w=w_arr, x=x_arr, y=y_arr)
     print("Start running...")
