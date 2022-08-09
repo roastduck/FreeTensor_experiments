@@ -1,8 +1,8 @@
 import freetensor as ft
 import numpy as np
 
-target = ft.GPU()
-device = ft.Device(target)
+device = ft.GPU()
+target = device.target()
 
 
 def test_matmul():

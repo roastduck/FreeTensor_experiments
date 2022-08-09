@@ -2,8 +2,8 @@ import freetensor as ft
 import numpy as np
 from freetensor import libop
 
-target = ft.GPU()
-device = ft.Device(target)
+device = ft.GPU()
+target = device.target()
 
 
 def test_c2d():

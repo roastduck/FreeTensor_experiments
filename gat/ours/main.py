@@ -156,10 +156,10 @@ if __name__ == '__main__':
     d_y = load_txt("../d_y.in", "float32")
 
     if device == 'gpu':
-        ir_dev = ft.Device(ft.GPU())
+        ir_dev = ft.GPU()
     else:
         assert device == 'cpu'
-        ir_dev = ft.Device(ft.CPU())
+        ir_dev = ft.CPU()
 
     ptr = ft.Array(ptr)
     idx = ft.Array(idx)
