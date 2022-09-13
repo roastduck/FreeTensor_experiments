@@ -6,8 +6,7 @@ import jax
 import jax.numpy as jnp
 
 
-@jax.jit
-def conv_impl1(x, w1, w2):
+def conv(x, w1, w2):
     n, c_in, h, w = x.shape
     c_out = w2.shape[0]
     k_h = w1.shape[0]
@@ -84,12 +83,34 @@ if __name__ == '__main__':
     w1 = jax.device_put(w1)
     w2 = jax.device_put(w2)
 
+    warmup_num = 10
     test_num = 100
 
-    y = conv_impl1(x, w1, w2)  # init lazy ops
+    conv_inference = jax.jit(conv)
+    # FIXME: Can we remove the `jnp.sum`?
+    conv_forward_backward = jax.grad(lambda *args: jnp.sum(conv(*args)),
+                                     argnums=(0, 1, 2))
+
+    for i in range(warmup_num):
+        y = conv_inference(x, w1, w2)
+    y = y.block_until_ready()
     t0 = time.time()
     for i in range(test_num):
-        y = conv_impl1(x, w1, w2)
+        y = conv_inference(x, w1, w2)
+    y = y.block_until_ready()
     t1 = time.time()
     assert y.shape == (n, c_out, h, w)
-    print(f"Time = {(t1 - t0) / test_num * 1000} ms")
+    print(f"Inference Time = {(t1 - t0) / test_num * 1000} ms")
+
+    for i in range(warmup_num):
+        d_x, d_w1, d_w2 = conv_forward_backward(x, w1, w2)
+    y = y.block_until_ready()
+    t0 = time.time()
+    for i in range(test_num):
+        d_x, d_w1, d_w2 = conv_forward_backward(x, w1, w2)
+    y = y.block_until_ready()
+    t1 = time.time()
+    assert d_x.shape == x.shape
+    assert d_w1.shape == w1.shape
+    assert d_w2.shape == w2.shape
+    print(f"Forward+Backward Time = {(t1 - t0) / test_num * 1000} ms")

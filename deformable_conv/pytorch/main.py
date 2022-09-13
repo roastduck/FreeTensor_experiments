@@ -95,20 +95,53 @@ if __name__ == '__main__':
     x = torch.rand(n, c_in, h, w, dtype=torch.float) * 2 - 1
     w1 = torch.rand(k_h, k_w, 2, c_in, k_h, k_w, dtype=torch.float) * 2 - 1
     w2 = torch.rand(c_out, c_in, k_h, k_w, dtype=torch.float) * 2 - 1
+    d_y = torch.rand(n, c_out, h, w, dtype=torch.float)
 
     if device == 'gpu':
         x = x.cuda()
         w1 = w1.cuda()
         w2 = w2.cuda()
+        d_y = d_y.cuda()
+        sync = torch.cuda.synchronize
     else:
         assert device == 'cpu'
+        sync = lambda: None
 
+    warmup_num = 10
     test_num = 100
 
-    y = conv_impl1(x, w1, w2)  # init lazy ops
+    for i in range(warmup_num):
+        y = conv_impl1(x, w1, w2)
+    sync()
     t0 = time.time()
     for i in range(test_num):
         y = conv_impl1(x, w1, w2)
+    sync()
     t1 = time.time()
     assert y.shape == (n, c_out, h, w)
-    print(f"Impl1 Time = {(t1 - t0) / test_num * 1000} ms")
+    print(f"Inference Time = {(t1 - t0) / test_num * 1000} ms")
+
+    x.requires_grad = True
+    w1.requires_grad = True
+    w2.requires_grad = True
+
+    for i in range(warmup_num):
+        y = conv_impl1(x, w1, w2)
+    sync()
+    t0 = time.time()
+    for i in range(test_num):
+        y = conv_impl1(x, w1, w2)
+    sync()
+    t1 = time.time()
+    assert y.shape == (n, c_out, h, w)
+    print(f"Forward Time = {(t1 - t0) / test_num * 1000} ms")
+
+    for i in range(warmup_num):
+        y.backward(d_y, retain_graph=True)
+    sync()
+    t0 = time.time()
+    for i in range(test_num):
+        y.backward(d_y, retain_graph=True)
+    sync()
+    t1 = time.time()
+    print(f"Backward Time = {(t1 - t0) / test_num * 1000} ms")
