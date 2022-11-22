@@ -101,11 +101,11 @@ with device:
 
     @ft.inline
     def face_obt(v):
-        obt = ft.empty((3, 3), "bool")
+        obt = ft.empty((3,), "bool")
 
         for k in range(3):
-            if dot_xy(sub(v[(k + 1) % 3], v[k]), sub(v[(k + 2) % 3], v[k])) < 0:
-                obt[k][0] = 1
+            obt[k] = dot_xy(sub(v[(k + 1) % 3], v[k]), sub(
+                v[(k + 2) % 3], v[k])) < 0
         return obt
 
     @ft.inline
@@ -145,10 +145,7 @@ with device:
         return w_clip
 
     @ft.inline
-    def euclidean_p2f_distance(w, face, face_info, xp, yp, sign):
-        sym = face_info[1]
-        obt = face_info[2]
-
+    def euclidean_p2f_distance(w, face, sym, obt, xp, yp, sign):
         t = ft.empty((3,), "float32")
         dis_x = ft.empty((), "float32")
         dis_y = ft.empty((), "float32")
@@ -196,11 +193,10 @@ with device:
             for k in range(3):
                 if v0 == -1 and w[(k + 1) % 3] <= 0 and w[(k + 2) % 3] <= 0:
                     v0[()] = k
-                    if obt[k, 0] == 1 and (
-                        (xp - face[k, 0]) *
-                        (face[(k + 2) % 3, 0] - face[k, 0]) +
-                        (yp - face[k, 1]) *
-                        (face[(k + 2) % 3, 1] - face[k, 1])) > 0:
+                    if obt[k] and ((xp - face[k, 0]) *
+                                   (face[(k + 2) % 3, 0] - face[k, 0]) +
+                                   (yp - face[k, 1]) *
+                                   (face[(k + 2) % 3, 1] - face[k, 1])) > 0:
                         v0[()] = (k + 2) % 3
             for k in range(3):
                 if v0 == -1 and w[k] <= 0:
@@ -271,13 +267,15 @@ with device:
         soft_colors: ft.Var[(batch_size, 4, image_size, image_size), "float32",
                             "inout"]
 
-        faces_info = ft.empty((batch_size, num_faces, 3, 3, 3), "float32")
+        faces_inv = ft.empty((batch_size, num_faces, 3, 3), "float32")
+        faces_sym = ft.empty((batch_size, num_faces, 3, 3), "float32")
+        faces_obt = ft.empty((batch_size, num_faces, 3), "bool")
 
         for bn in range(batch_size):
             for fn in range(num_faces):
-                ft.assign(faces_info[bn, fn, 0], face_inv(faces[bn, fn]))
-                ft.assign(faces_info[bn, fn, 1], face_sym(faces[bn, fn]))
-                ft.assign(faces_info[bn, fn, 2], face_obt(faces[bn, fn]))
+                ft.assign(faces_inv[bn, fn], face_inv(faces[bn, fn]))
+                ft.assign(faces_sym[bn, fn], face_sym(faces[bn, fn]))
+                ft.assign(faces_obt[bn, fn], face_obt(faces[bn, fn]))
 
         for bn in range(batch_size):
             for pn in range(image_size * image_size):
@@ -306,10 +304,12 @@ with device:
                 for fn in range(num_faces):
                     face = faces[bn, fn]
                     texture = textures[bn, fn]
-                    face_info = faces_info[bn, fn]
+                    inv = faces_inv[bn, fn]
+                    sym = faces_sym[bn, fn]
+                    obt = faces_obt[bn, fn]
                     if not check_border(xp, yp, face, threshold):
 
-                        w = barycentric_coordinate(xp, yp, face_info[0])
+                        w = barycentric_coordinate(xp, yp, inv)
 
                         if w[0] > 0 and w[1] > 0 and w[2] > 0 and w[
                                 0] < 1 and w[1] < 1 and w[2] < 1:
@@ -318,7 +318,7 @@ with device:
                             sign[fn] = -1
 
                         dis_x, dis_y, t = euclidean_p2f_distance(
-                            w, face, face_info, xp, yp, sign[fn])
+                            w, face, sym, obt, xp, yp, sign[fn])
 
                         dis = ft.empty((), "float32")
                         dis[()] = dis_x * dis_x + dis_y * dis_y
@@ -378,9 +378,11 @@ with device:
 
 def our_render(faces, textures):
     """
-        faces = faces[batch_size][num_faces][3(vertices)][3(xyz)]
-        textures = textures[batch_size][num_faces][texture_size][3]
-        face_info = face_info[batch_size][num_faces][3(inv, sym, obt)][3][3] // matrix
+        faces[batch_size][num_faces][3(vertices)][3(xyz)]
+        textures[batch_size][num_faces][texture_size][3]
+        inv[batch_size][num_faces][3][3]
+        sym[batch_size][num_faces][3][3]
+        obt[batch_size][num_faces][3]
     """
     batch_size = 1
     image_size = 256
