@@ -62,68 +62,46 @@ with device:
         return inv
 
     @ft.inline
-    def face_sym(v):
-        """
-        compute matmul of
-        [[x0, y0, 1],
-         [x1, y1, 1],
-         [x2, y2, 1]]
-        *
-        [[x0, y0, 1],
-         [x1, y1, 1],
-         [x2, y2, 1]]^T
-        """
-        sym = ft.empty((3, 3), "float32")
-
-        for j in range(3):
-            for k in range(3):
-                sym[j][k] = v[j][0] * v[k][0] + v[j][1] * v[k][1] + 1
-        return sym
-
-    @ft.inline
-    def dot_xyz(v1, v2):
-        y = ft.empty((), "float32")
-        y[()] = v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]
-        return y
-
-    @ft.inline
     def dot_xy(v1, v2):
         y = ft.empty((), "float32")
         y[()] = v1[0] * v2[0] + v1[1] * v2[1]
         return y
 
     @ft.inline
-    def sub(v1, v2):
-        y = ft.empty((3,), "float32")
-        for k in range(3):
+    def cross_xy(v1, v2):
+        y = ft.empty((), "float32")
+        y[()] = v1[0] * v2[1] - v1[1] * v2[0]
+        return y
+
+    @ft.inline
+    def sub_xy(v1, v2):
+        y = ft.empty((2,), "float32")
+        for k in range(2):
             y[k] = v1[k] - v2[k]
         return y
 
     @ft.inline
-    def face_obt(v):
-        obt = ft.empty((3,), "bool")
-
-        for k in range(3):
-            obt[k] = dot_xy(sub(v[(k + 1) % 3], v[k]), sub(
-                v[(k + 2) % 3], v[k])) < 0
-        return obt
+    def norm2(v):
+        y = ft.empty((), "float32")
+        y[()] = v[0] * v[0] + v[1] * v[1]
+        return y
 
     @ft.inline
-    def barycentric_coordinate(x, y, inv):
+    def barycentric_coordinate(p, inv):
         w = ft.empty((3,), "float32")
-        w[0] = inv[0, 0] * x + inv[0, 1] * y + inv[0, 2]
-        w[1] = inv[1, 0] * x + inv[1, 1] * y + inv[1, 2]
-        w[2] = inv[2, 0] * x + inv[2, 1] * y + inv[2, 2]
+        w[0] = inv[0, 0] * p[0] + inv[0, 1] * p[1] + inv[0, 2]
+        w[1] = inv[1, 0] * p[0] + inv[1, 1] * p[1] + inv[1, 2]
+        w[2] = inv[2, 0] * p[0] + inv[2, 1] * p[1] + inv[2, 2]
         return w
 
     @ft.inline
-    def check_border(x, y, f, threshold):
+    def check_border(p, f, threshold):
         t = ft.sqrt(threshold)
         ret = ft.empty((), "bool")
-        ret[()] = (x > ft.max(ft.max(f[0, 0], f[1, 0]), f[2, 0]) + t) or (
-            x < ft.min(ft.min(f[0, 0], f[1, 0]), f[2, 0]) - t) or (
-                y > ft.max(ft.max(f[0, 1], f[1, 1]), f[2, 1]) + t) or (
-                    y < ft.min(ft.min(f[0, 1], f[1, 1]), f[2, 1]) - t)
+        ret[()] = (p[0] > ft.max(ft.max(f[0, 0], f[1, 0]), f[2, 0]) + t) or (
+            p[0] < ft.min(ft.min(f[0, 0], f[1, 0]), f[2, 0]) - t) or (
+                p[1] > ft.max(ft.max(f[0, 1], f[1, 1]), f[2, 1]) + t) or (
+                    p[1] < ft.min(ft.min(f[0, 1], f[1, 1]), f[2, 1]) - t)
         return ret[()]
 
     @ft.inline
@@ -145,83 +123,34 @@ with device:
         return w_clip
 
     @ft.inline
-    def euclidean_p2f_distance(w, face, sym, obt, xp, yp, sign):
-        t = ft.empty((3,), "float32")
-        dis_x = ft.empty((), "float32")
-        dis_y = ft.empty((), "float32")
+    def euclidean_p2f_distance(f, p):
+        '''
+            Using barycentric coordinate will be convenient for human to deduce gradient function
+            However, we use autograd. There is no need to use barycentric coordinate to calculate distance
+            TODO: reduce calculations when sign < 0
+        '''
 
-        if sign > 0:
-            dis_min = ft.empty((), "float32")
-            dis_x_min = ft.empty((), "float32")
-            dis_y_min = ft.empty((), "float32")
-            dis_min[()] = 100000000
-            dis_x_min[()] = 0
-            dis_y_min[()] = 0
-            a0 = ft.empty((3,), "float32")
-            t0 = ft.empty((3,), "float32")
-            for k in range(3):
-                v0, v1, v2 = k, (k + 1) % 3, (k + 2) % 3
-                a0 = sub(sym[v0], sym[v1])
+        dist = ft.empty((3,), "float32")
+        for k in range(3):
+            area = cross_xy(sub_xy(p, f[k]), sub_xy(f[(k + 1) % 3], f[k]))
 
-                t0[v0] = (w[0] * a0[0] + w[1] * a0[1] + w[2] * a0[2] -
-                          a0[v1]) / (a0[v0] - a0[v1])
-                t0[v1] = 1 - t0[v0]
-                t0[v2] = 0
+            d1 = dot_xy(sub_xy(p, f[k]), sub_xy(f[(k + 1) % 3], f[k]))
+            if d1[()] >= 0:
+                d2 = dot_xy(sub_xy(p, f[(k + 1) % 3]),
+                            sub_xy(f[k], f[(k + 1) % 3]))
+                if d2[()] >= 0:
+                    len = norm2(sub_xy(f[(k + 1) % 3], f[k]))
+                    dist[k] = area / ft.max(len[()], 1e-10) * area
+                else:
+                    p2_dist = norm2(sub_xy(p, f[(k + 1) % 3]))
+                    dist[k] = p2_dist[()]
+            else:
+                p1_dist = norm2(sub_xy(p, f[k]))
+                dist[k] = p1_dist[()]
 
-                ft.sub_to(t0, w)
-
-                dis_x[(
-                )] = t0[0] * face[0, 0] + t0[1] * face[1, 0] + t0[2] * face[2,
-                                                                            0]
-                dis_y[(
-                )] = t0[0] * face[0, 1] + t0[1] * face[1, 1] + t0[2] * face[2,
-                                                                            1]
-
-                dis = ft.empty((), "float32")
-                dis[()] = dis_x * dis_x + dis_y * dis_y
-
-                if dis < dis_min:
-                    dis_min[()] = dis
-                    dis_x_min[()] = dis_x
-                    dis_y_min[()] = dis_y
-                    ft.assign(t, t0)
-            dis_x[()] = dis_x_min
-            dis_y[()] = dis_y_min
-        else:
-            v0 = ft.empty((), "int32")
-            v0[()] = -1
-            for k in range(3):
-                if v0 == -1 and w[(k + 1) % 3] <= 0 and w[(k + 2) % 3] <= 0:
-                    v0[()] = k
-                    if obt[k] and ((xp - face[k, 0]) *
-                                   (face[(k + 2) % 3, 0] - face[k, 0]) +
-                                   (yp - face[k, 1]) *
-                                   (face[(k + 2) % 3, 1] - face[k, 1])) > 0:
-                        v0[()] = (k + 2) % 3
-            for k in range(3):
-                if v0 == -1 and w[k] <= 0:
-                    v0[()] = (k + 1) % 3
-
-            v1 = (v0 + 1) % 3
-            v2 = (v0 + 2) % 3
-
-            a0 = ft.empty((3,), "float32")
-            a0 = sub(sym[v0], sym[v1])
-
-            t[v0] = (w[0] * a0[0] + w[1] * a0[1] + w[2] * a0[2] -
-                     a0[v1]) / (a0[v0] - a0[v1])
-            t[v1] = 1 - t[v0]
-            t[v2] = 0
-
-            for k in range(3):
-                t[k] = ft.min(ft.max(t[k], 0.), 1.)
-                t[k] -= w[k]
-
-            dis_x[(
-            )] = t[0] * face[0, 0] + t[1] * face[1, 0] + t[2] * face[2, 0]
-            dis_y[(
-            )] = t[0] * face[0, 1] + t[1] * face[1, 1] + t[2] * face[2, 1]
-        return (dis_x, dis_y, t)
+        dis = ft.empty((), "float32")
+        dis[()] = ft.min(ft.min(dist[0], dist[1]), dist[2])
+        return dis
 
     @ft.inline
     def forward_sample_texture(texture, w, r, k, texture_type):
@@ -268,23 +197,19 @@ with device:
                             "inout"]
 
         faces_inv = ft.empty((batch_size, num_faces, 3, 3), "float32")
-        faces_sym = ft.empty((batch_size, num_faces, 3, 3), "float32")
-        faces_obt = ft.empty((batch_size, num_faces, 3), "bool")
 
         for bn in range(batch_size):
             for fn in range(num_faces):
                 ft.assign(faces_inv[bn, fn], face_inv(faces[bn, fn]))
-                ft.assign(faces_sym[bn, fn], face_sym(faces[bn, fn]))
-                ft.assign(faces_obt[bn, fn], face_obt(faces[bn, fn]))
 
         for bn in range(batch_size):
             for pn in range(image_size * image_size):
                 yi = image_size - 1 - (pn // image_size)
                 xi = pn % image_size
-                xp = ft.empty((), "float32")
-                yp = ft.empty((), "float32")
-                xp[()] = (2. * xi + 1. - image_size) / image_size
-                yp[()] = (2. * yi + 1. - image_size) / image_size
+                pixel = ft.empty((2,), "float32")
+
+                pixel[0] = (2. * xi + 1. - image_size) / image_size
+                pixel[1] = (2. * yi + 1. - image_size) / image_size
 
                 softmax_sum = ft.empty((), "float32")
                 softmax_sum[()] = ft.exp(eps / gamma_val)
@@ -305,11 +230,9 @@ with device:
                     face = faces[bn, fn]
                     texture = textures[bn, fn]
                     inv = faces_inv[bn, fn]
-                    sym = faces_sym[bn, fn]
-                    obt = faces_obt[bn, fn]
-                    if not check_border(xp, yp, face, threshold):
+                    if not check_border(pixel, face, threshold):
 
-                        w = barycentric_coordinate(xp, yp, inv)
+                        w = barycentric_coordinate(pixel, inv)
 
                         if w[0] > 0 and w[1] > 0 and w[2] > 0 and w[
                                 0] < 1 and w[1] < 1 and w[2] < 1:
@@ -317,11 +240,8 @@ with device:
                         else:
                             sign[fn] = -1
 
-                        dis_x, dis_y, t = euclidean_p2f_distance(
-                            w, face, sym, obt, xp, yp, sign[fn])
-
                         dis = ft.empty((), "float32")
-                        dis[()] = dis_x * dis_x + dis_y * dis_y
+                        dis[()] = euclidean_p2f_distance(face, pixel)
 
                         if not (sign[fn] < 0 and dis >= threshold):
 
@@ -381,8 +301,6 @@ def our_render(faces, textures):
         faces[batch_size][num_faces][3(vertices)][3(xyz)]
         textures[batch_size][num_faces][texture_size][3]
         inv[batch_size][num_faces][3][3]
-        sym[batch_size][num_faces][3][3]
-        obt[batch_size][num_faces][3]
     """
     batch_size = 1
     image_size = 256
