@@ -1,14 +1,14 @@
 import sys
 import time
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import os
 import tqdm
 import numpy as np
 import imageio
 import argparse
 
-import torch
-import torch.nn as nn
+#import torch
+#import torch.nn as nn
 
 import freetensor as ft
 
@@ -32,6 +32,22 @@ def store_txt(filename: str, tensor: np.array):
 
 
 device = ft.CPU(0)
+#device = ft.GPU(0)
+
+batch_size = 1
+num_faces = 5856
+texture_size = 25
+texture_res = 5
+image_size = 256
+near = 1.
+far = 100.
+eps = 1e-3
+sigma_val = 1e-5
+gamma_val = 1e-4
+dist_eps = 9.21024036697585
+threshold = dist_eps * sigma_val
+double_side = False
+texture_type = 0
 
 with device:
 
@@ -99,9 +115,9 @@ with device:
         t = ft.sqrt(threshold)
         ret = ft.empty((), "bool")
         ret[()] = (p[0] > ft.max(ft.max(f[0, 0], f[1, 0]), f[2, 0]) + t) or (
-            p[0] < ft.min(ft.min(f[0, 0], f[1, 0]), f[2, 0]) - t) or (
-                p[1] > ft.max(ft.max(f[0, 1], f[1, 1]), f[2, 1]) + t) or (
-                    p[1] < ft.min(ft.min(f[0, 1], f[1, 1]), f[2, 1]) - t)
+            p[0] < ft.min(ft.min(f[0, 0], f[1, 0]), f[2, 0]) -
+            t) or (p[1] > ft.max(ft.max(f[0, 1], f[1, 1]), f[2, 1]) +
+                   t) or (p[1] < ft.min(ft.min(f[0, 1], f[1, 1]), f[2, 1]) - t)
         return ret[()]
 
     @ft.inline
@@ -174,23 +190,8 @@ with device:
                                                                               k]
         return texture_k
 
-    @ft.transform(verbose=2)
-    def our_render_main(faces, textures, soft_colors):
-        batch_size = 1
-        num_faces = 5856
-        texture_size = 25
-        texture_res = 5
-        image_size = 256
-        near = 1.
-        far = 100.
-        eps = 1e-3
-        sigma_val = 1e-5
-        gamma_val = 1e-4
-        dist_eps = 9.21024036697585
-        threshold = dist_eps * sigma_val
-        double_side = False
-        texture_type = 0
-
+    @ft.transform
+    def our_render_main_original(faces, textures, soft_colors):
         faces: ft.Var[(batch_size, num_faces, 3, 3), "float32"]
         textures: ft.Var[(batch_size, num_faces, texture_size, 3), "float32"]
         soft_colors: ft.Var[(batch_size, 4, image_size, image_size), "float32",
@@ -293,20 +294,282 @@ with device:
 
         return soft_colors
 
+    @ft.transform
+    def our_render_main_no_iterative_softmax(faces, textures, soft_colors):
+        faces: ft.Var[(batch_size, num_faces, 3, 3), "float32"]
+        textures: ft.Var[(batch_size, num_faces, texture_size, 3), "float32"]
+        soft_colors: ft.Var[(batch_size, 4, image_size, image_size), "float32",
+                            "inout"]
+
+        faces_inv = ft.empty((batch_size, num_faces, 3, 3), "float32")
+
+        for bn in range(batch_size):
+            for fn in range(num_faces):
+                ft.assign(faces_inv[bn, fn], face_inv(faces[bn, fn]))
+
+        for bn in range(batch_size):
+            for pn in range(image_size * image_size):
+                yi = image_size - 1 - (pn // image_size)
+                xi = pn % image_size
+                pixel = ft.empty((2,), "float32")
+
+                pixel[0] = (2. * xi + 1. - image_size) / image_size
+                pixel[1] = (2. * yi + 1. - image_size) / image_size
+
+                softmax_max = ft.empty((), "float32")
+                softmax_max[()] = eps
+
+                soft_color = ft.empty((4,), "float32")
+                soft_color[3] = 1.
+
+                for fn in range(num_faces):
+                    face = faces[bn, fn]
+                    inv = faces_inv[bn, fn]
+                    if not check_border(pixel, face, threshold):
+
+                        w = barycentric_coordinate(pixel, inv)
+
+                        w_clip = barycentric_clip(w)
+
+                        zp = ft.empty((), "float32")
+
+                        zp[()] = 1. / (w_clip[0] / face[0, 2] + w_clip[1] /
+                                       face[1, 2] + w_clip[2] / face[2, 2])
+
+                        if not (zp < near or zp > far):
+                            if check_face_frontside(face) or double_side:
+                                zp_norm = ft.empty((), "float32")
+                                zp_norm[()] = (far - zp) / (far - near)
+
+                                softmax_max[()] = ft.max(softmax_max, zp_norm)
+
+                softmax_sum = ft.empty((), "float32")
+                softmax_sum[()] = ft.exp((2 * eps - softmax_max) / gamma_val)
+
+                for k in range(3):
+                    soft_color[k] = soft_colors[bn, k, pn // image_size,
+                                                pn % image_size] * softmax_sum
+
+                for fn in range(num_faces):
+                    face = faces[bn, fn]
+                    texture = textures[bn, fn]
+                    inv = faces_inv[bn, fn]
+                    if not check_border(pixel, face, threshold):
+
+                        w = barycentric_coordinate(pixel, inv)
+
+                        sign = ft.empty((), "float32")
+
+                        if w[0] > 0 and w[1] > 0 and w[2] > 0 and w[
+                                0] < 1 and w[1] < 1 and w[2] < 1:
+                            sign[()] = 1
+                        else:
+                            sign[()] = -1
+
+                        dis = ft.empty((), "float32")
+                        dis[()] = euclidean_p2f_distance(face, pixel)
+
+                        if not (sign < 0 and dis >= threshold):
+
+                            soft_fragment = ft.empty((), "float32")
+                            soft_fragment[(
+                            )] = 1. / (1. + ft.exp(-sign * dis / sigma_val))
+
+                            soft_color[3] *= ft.cast(1. - soft_fragment,
+                                                     "float32>0")
+
+                            w_clip = barycentric_clip(w)
+
+                            zp = ft.empty((), "float32")
+
+                            zp[()] = 1. / (w_clip[0] / face[0, 2] + w_clip[1] /
+                                           face[1, 2] + w_clip[2] / face[2, 2])
+
+                            if not (zp < near or zp > far):
+                                if check_face_frontside(face) or double_side:
+                                    zp_norm = ft.empty((), "float32")
+                                    zp_norm[()] = (far - zp) / (far - near)
+
+                                    coef = ft.exp((zp_norm - softmax_max) /
+                                                  gamma_val) * soft_fragment
+                                    softmax_sum[()] += coef
+                                    for k in range(3):
+                                        color_k = forward_sample_texture(
+                                            texture, w_clip, texture_res, k,
+                                            texture_type)
+
+                                        soft_color[k] += coef * color_k
+
+                soft_colors[bn, 3, pn // image_size,
+                            pn % image_size] = 1. - soft_color[3]
+                for k in range(3):
+                    soft_colors[bn, k, pn // image_size,
+                                pn % image_size] = soft_color[k] / softmax_sum
+
+        return soft_colors
+
+    @ft.transform
+    def our_render_main(faces, textures, soft_colors):
+        faces: ft.Var[(batch_size, num_faces, 3, 3), "float32"]
+        textures: ft.Var[(batch_size, num_faces, texture_size, 3), "float32"]
+        soft_colors: ft.Var[(batch_size, 4, image_size, image_size), "float32",
+                            "inout"]
+
+        faces_inv = ft.empty((batch_size, num_faces, 3, 3), "float32")
+
+        for bn in range(batch_size):
+            for fn in range(num_faces):
+                ft.assign(faces_inv[bn, fn], face_inv(faces[bn, fn]))
+
+        for bn in range(batch_size):
+            #! label: L_pn
+            for pn in range(image_size * image_size):
+                yi = image_size - 1 - (pn // image_size)
+                xi = pn % image_size
+                pixel = ft.empty((2,), "float32")
+
+                pixel[0] = (2. * xi + 1. - image_size) / image_size
+                pixel[1] = (2. * yi + 1. - image_size) / image_size
+
+                #! label: softmax_max
+                softmax_max = ft.empty((), "float32")
+                with ft.StmtRange() as rng:
+                    softmax_max[()] = eps
+                    for fn in range(num_faces):
+                        face = faces[bn, fn]
+                        inv = faces_inv[bn, fn]
+                        if not check_border(pixel, face, threshold):
+
+                            w = barycentric_coordinate(pixel, inv)
+
+                            w_clip = barycentric_clip(w)
+
+                            zp = ft.empty((), "float32")
+
+                            zp[()] = 1. / (w_clip[0] / face[0, 2] + w_clip[1] /
+                                           face[1, 2] + w_clip[2] / face[2, 2])
+
+                            if not (zp < near or zp > far):
+                                if check_face_frontside(face) or double_side:
+                                    zp_norm = ft.empty((), "float32")
+                                    zp_norm[()] = (far - zp) / (far - near)
+
+                                    softmax_max[()] = ft.max(
+                                        softmax_max, zp_norm)
+                with ft.UserGrad(stmt_range=rng):
+                    pass
+
+                background_weight = ft.empty((), "float32")
+                background_weight[...] = 2 * eps
+                coef = ft.exp((background_weight - softmax_max) / gamma_val)
+
+                soft_color = ft.empty((3,), "float32")
+                soft_color_alpha_log = ft.empty((), "float32")
+                soft_color_alpha_log[...] = 0.
+                for k in ft.static_range(3):
+                    soft_color[k] = soft_colors[bn, k, pn // image_size,
+                                                pn % image_size] * coef
+
+                #! label: softmax_sum
+                softmax_sum = ft.empty((), "float32")
+                softmax_sum[()] = coef
+
+                #! label: L_fn
+                for fn in range(num_faces):
+                    face = faces[bn, fn]
+                    texture = textures[bn, fn]
+                    inv = faces_inv[bn, fn]
+                    if not check_border(pixel, face, threshold):
+
+                        w = barycentric_coordinate(pixel, inv)
+
+                        sign = ft.empty((), "float32")
+
+                        if w[0] > 0 and w[1] > 0 and w[2] > 0 and w[
+                                0] < 1 and w[1] < 1 and w[2] < 1:
+                            sign[()] = 1
+                        else:
+                            sign[()] = -1
+
+                        dis = ft.empty((), "float32")
+                        dis[()] = euclidean_p2f_distance(face, pixel)
+
+                        if not (sign < 0 and dis >= threshold):
+
+                            soft_fragment = ft.empty((), "float32")
+                            soft_fragment[(
+                            )] = 1. / (1. + ft.exp(-sign * dis / sigma_val))
+
+                            soft_color_alpha_log[...] += ft.ln(1. -
+                                                               soft_fragment)
+
+                            w_clip = barycentric_clip(w)
+
+                            zp = ft.empty((), "float32")
+
+                            zp[()] = 1. / (w_clip[0] / face[0, 2] + w_clip[1] /
+                                           face[1, 2] + w_clip[2] / face[2, 2])
+
+                            if not (zp < near or zp > far):
+                                if check_face_frontside(face) or double_side:
+                                    zp_norm = ft.empty((), "float32")
+                                    zp_norm[()] = (far - zp) / (far - near)
+
+                                    coef = ft.exp((zp_norm - softmax_max) /
+                                                  gamma_val) * soft_fragment
+                                    softmax_sum[()] += coef
+                                    for k in range(3):
+                                        color_k = forward_sample_texture(
+                                            texture, w_clip, texture_res, k,
+                                            texture_type)
+
+                                        soft_color[k] += coef * color_k
+
+                soft_colors[bn, 3, pn // image_size,
+                            pn % image_size] = 1. - ft.exp(soft_color_alpha_log)
+                for k in ft.static_range(3):
+                    soft_colors[bn, k, pn // image_size,
+                                pn % image_size] = soft_color[k] / softmax_sum
+
+        return soft_colors
+
     forward, backward, requires, privdes = ft.grad_(
         our_render_main,
         #set(["textures"]),
         #set(["faces"]),
         set(["faces", "textures"]),
         set(["soft_colors"]),
-        tapes=ft.GradTapeMode.All,
+        tapes=ft.TapeStrategy(ft.GradTapeMode.NoReuseOnly).always_tape(
+            {"softmax_sum", "softmax_max"}),
+        invert=False,
+        #invert=True,
+        reset_provided_grad=False,
         verbose=2)
+
+    def schedule_fwd(s):
+        s.auto_inline(device.target())
+        s.auto_use_lib(device.target())
+        s.auto_reorder(device.target())
+        s.auto_parallelize(device.target())
+        s.auto_set_mem_type(device.target())
+        s.auto_unroll(device.target())
+
+    def schedule_bwd(s):
+        s.auto_inline(device.target())
+        s.auto_use_lib(device.target())
+        s.auto_reorder(device.target())
+        s.reorder(['$grad{L_fn}', '$grad{L_pn}'],
+                  ft.ReorderMode.MoveOutImperfect)
+        s.auto_parallelize(device.target())
+        s.auto_set_mem_type(device.target())
+        s.auto_unroll(device.target())
 
     print("# Forward:")
     print(forward)
     forward_exe = ft.optimize(
         forward,
         #schedule_callback=lambda s: s.auto_schedule(device.target()),
+        schedule_callback=schedule_fwd,
         verbose=1)
     """
     forward_exe = ft.Driver(forward_exe.func,
@@ -319,6 +582,7 @@ with device:
     backward_exe = ft.optimize(
         backward,
         #schedule_callback=lambda s: s.auto_schedule(device.target()),
+        schedule_callback=schedule_bwd,
         verbose=1)
 
     def run_backward(faces, textures, soft_colors, d_soft_colors, d_faces,
@@ -329,6 +593,23 @@ with device:
         kvs[requires['faces']] = d_faces
         backward_exe(**kvs)
 
+    @ft.optimize(schedule_callback=schedule_fwd)
+    def init_background_color():
+        background_r = 0
+        background_g = 0
+        background_b = 0
+        background_a = 1
+        color = ft.empty((batch_size, 4, image_size, image_size), "float32")
+        color[:, 0, :, :] = background_r
+        color[:, 1, :, :] = background_g
+        color[:, 2, :, :] = background_b
+        color[:, 3, :, :] = background_a
+        return color
+
+
+d_soft_colors = ft.array(
+    np.ones((batch_size, 4, image_size, image_size), dtype="float32"))
+
 
 def our_render(faces, textures):
     """
@@ -336,26 +617,16 @@ def our_render(faces, textures):
         textures[batch_size][num_faces][texture_size][3]
         inv[batch_size][num_faces][3][3]
     """
-    batch_size = 1
-    image_size = 256
-    soft_colors = torch.ones((batch_size, 4, image_size, image_size),
-                             dtype=torch.float32)
-    background_color = [0, 0, 0]
-    soft_colors[:, 0, :, :] *= background_color[0]
-    soft_colors[:, 1, :, :] *= background_color[1]
-    soft_colors[:, 2, :, :] *= background_color[2]
-
+    soft_colors = init_background_color()
     forward_exe(faces, textures, soft_colors)
 
-    d_soft_colors = np.ones(soft_colors.shape, dtype="float32")
-
-    d_faces = np.zeros(faces.shape, dtype="float32")
-    d_textures = np.zeros(textures.shape, dtype="float32")
+    d_faces = ft.array(np.empty(faces.shape, dtype="float32"))
+    d_textures = ft.array(np.empty(textures.shape, dtype="float32"))
 
     run_backward(faces, textures, soft_colors, d_soft_colors, d_faces,
                  d_textures)
 
-    return (soft_colors, d_faces, d_textures)
+    return (soft_colors.numpy(), d_faces.numpy(), d_textures.numpy())
 
 
 def main():
@@ -377,7 +648,7 @@ def main():
                                 mode='I')
 
     warmup_num = 1
-    repeat_num = 0
+    repeat_num = 3
 
     face_vertices = []
     face_textures = []
@@ -402,9 +673,9 @@ def main():
                 store_txt(f"./result/d_faces{str(num*4).zfill(3)}.txt", d_faces)
                 store_txt(f"./result/d_textures{str(num*4).zfill(3)}.txt",
                           d_textures)
-                image = images.detach().cpu().numpy()[0].transpose((1, 2, 0))
+                image = images[0].transpose((1, 2, 0))
                 writer.append_data((255 * image).astype(np.uint8))
-            break
+            #break
         if i == 0:
             writer.close()
 
