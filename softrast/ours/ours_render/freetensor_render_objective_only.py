@@ -536,20 +536,6 @@ with device:
 
         return soft_colors
 
-    forward, backward, requires, privdes = ft.grad_(
-        #our_render_main_no_iterative_softmax,
-        our_render_main,
-        #set(["textures"]),
-        #set(["faces"]),
-        set(["faces", "textures"]),
-        set(["soft_colors"]),
-        tapes=ft.TapeStrategy(ft.GradTapeMode.NoReuseOnly).always_tape(
-            {"softmax_sum", "softmax_max"}),
-        invert=False,
-        #invert=True,
-        reset_provided_grad=False,
-        verbose=2)
-
     def schedule_fwd(s):
         if 'PAPER_SERIAL' in os.environ:
             return
@@ -570,34 +556,11 @@ with device:
         s.auto_set_mem_type(device.target())
         s.auto_unroll(device.target())
 
-    print("# Forward:")
-    print(forward)
-    forward_exe = ft.optimize(
-        forward,
+    our_render_main = ft.optimize(
+        our_render_main,
         #schedule_callback=lambda s: s.auto_schedule(device.target()),
         schedule_callback=schedule_fwd,
         verbose=1)
-    """
-    forward_exe = ft.Driver(forward_exe.func,
-                            open("src_forward.txt", "r").read(),
-                            verbose=2)
-    """
-
-    print("# Backward;")
-    print(backward)
-    backward_exe = ft.optimize(
-        backward,
-        #schedule_callback=lambda s: s.auto_schedule(device.target()),
-        schedule_callback=schedule_bwd,
-        verbose=1)
-
-    def run_backward(faces, textures, soft_colors, d_soft_colors, d_faces,
-                     d_textures):
-        kvs = {}
-        kvs[privdes['soft_colors']] = d_soft_colors
-        kvs[requires['textures']] = d_textures
-        kvs[requires['faces']] = d_faces
-        backward_exe(**kvs)
 
     @ft.optimize(schedule_callback=schedule_fwd)
     def init_background_color():
@@ -624,15 +587,8 @@ def our_render(faces, textures):
         inv[batch_size][num_faces][3][3]
     """
     soft_colors = init_background_color()
-    forward_exe(faces, textures, soft_colors)
-
-    d_faces = ft.array(np.empty(faces.shape, dtype="float32"))
-    d_textures = ft.array(np.empty(textures.shape, dtype="float32"))
-
-    run_backward(faces, textures, soft_colors, d_soft_colors, d_faces,
-                 d_textures)
-
-    return (soft_colors.numpy(), d_faces.numpy(), d_textures.numpy())
+    our_render_main(faces, textures, soft_colors)
+    return soft_colors.numpy()
 
 
 def main():
@@ -668,27 +624,13 @@ def main():
             face_vertices = load_txt(f"./data/face_vertices{angle}", "float32")
             face_textures = load_txt(f"./data/face_textures{angle}", "float32")
 
-        images, d_faces, d_textures = our_render(face_vertices,
-                                                 face_textures)
-
-        if i == 0:
-            store_txt(f"./result/d_faces{angle}_{image_size}.txt", d_faces)
-            store_txt(f"./result/d_textures{angle}_{image_size}.txt",
-                      d_textures)
-            #image = images[0].transpose((1, 2, 0))
-            #writer.append_data((255 * image).astype(np.uint8))
-            #break
-        #if i == 0:
-            #writer.close()
+        our_render(face_vertices, face_textures)
 
     tot_time = 0.
     timed_rounds = 0
     for i in range(repeat_num):
-        #loop = tqdm.tqdm(list(range(0, 360, 4)))
-        #for num, azimuth in enumerate(loop):
-            #loop.set_description('Drawing rotation')
         t0 = time.time()
-        images = our_render(face_vertices, face_textures)
+        our_render(face_vertices, face_textures)
         t1 = time.time()
         tot_time += t1 - t0
         timed_rounds += 1

@@ -4,10 +4,14 @@ import numpy as np
 sys.path.append('../../../')
 from common.numpy.io import load_txt
 
+angle = sys.argv[1]
+image_size = int(sys.argv[2])
 
 def cmp_faces():
-    data1 = load_txt(f"./result/d_faces000.txt", "float32")
-    data2 = load_txt(f"./result/grad_faces000.txt", "float32")
+    #data1 = load_txt(f"./result/d_faces{angle}_{image_size}.txt", "float32")
+    data1 = load_txt(f"./result/tapenade_grad_faces{angle}_{image_size}.txt", "float32")
+    data2 = load_txt(f"./result/enzyme_grad_faces{angle}_{image_size}.txt", "float32")
+    #data2 = load_txt(f"/home/trrbivial/FreeTensor_experiments/softrast/ours/ours_render/result/dd_faces000.txt", "float32")
     x = np.isclose(data2, data1, 5e-2, 5e-3)
     sum = 0.
     t = [0, 0, 0]
@@ -23,8 +27,10 @@ def cmp_faces():
 
 
 def cmp_textures():
-    data1 = load_txt(f"./result/d_textures000.txt", "float32")
-    data2 = load_txt(f"./result/grad_textures000.txt", "float32")
+    #data1 = load_txt(f"./result/d_textures{angle}_{image_size}.txt", "float32")
+    data1 = load_txt(f"./result/tapenade_grad_textures{angle}_{image_size}.txt", "float32")
+    data2 = load_txt(f"./result/enzyme_grad_textures{angle}_{image_size}.txt", "float32")
+    #data2 = load_txt(f"/home/trrbivial/FreeTensor_experiments/softrast/ours/ours_render/result/dd_textures000.txt", "float32")
     x = np.isclose(data2, data1, 5e-2, 5e-3)
     sum = 0.
     for i in range(5856):

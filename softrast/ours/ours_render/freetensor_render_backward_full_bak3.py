@@ -5,15 +5,12 @@ import os
 import tqdm
 import numpy as np
 import imageio
-#import argparse
+import argparse
 
 #import torch
 #import torch.nn as nn
 
 import freetensor as ft
-
-angle = sys.argv[1]
-image_size = int(sys.argv[2])
 
 
 def load_txt(filename: str, dtype: str):
@@ -38,10 +35,10 @@ device = ft.CPU(0)
 #device = ft.GPU(0)
 
 batch_size = 1
-num_faces = 5856
-texture_size = 25
-texture_res = 5
-#image_size = 256
+num_faces = 1280
+texture_size = 1
+texture_res = 1
+image_size = 64
 near = 1.
 far = 100.
 eps = 1e-3
@@ -181,7 +178,7 @@ with device:
             w_x[()] = w[0] * r
             w_y[()] = w[1] * r
             if (w[0] + w[1]) * r - w_x - w_y <= 1:
-                if w_y * r + w_x == 25:
+                if w_y * r + w_x == texture_size:
                     texture_k[()] = texture[w_y * r + w_x - 1, k]
                 else:
                     texture_k[()] = texture[w_y * r + w_x, k]
@@ -537,38 +534,38 @@ with device:
         return soft_colors
 
     forward, backward, requires, privdes = ft.grad_(
-        #our_render_main_no_iterative_softmax,
-        our_render_main,
+        our_render_main_no_iterative_softmax,
+        #our_render_main,
         #set(["textures"]),
         #set(["faces"]),
         set(["faces", "textures"]),
         set(["soft_colors"]),
-        tapes=ft.TapeStrategy(ft.GradTapeMode.NoReuseOnly).always_tape(
-            {"softmax_sum", "softmax_max"}),
+        #tapes=ft.TapeStrategy(ft.GradTapeMode.NoReuseOnly).always_tape(
+        #    {"softmax_sum", "softmax_max"}),
         invert=False,
         #invert=True,
         reset_provided_grad=False,
         verbose=2)
 
     def schedule_fwd(s):
-        if 'PAPER_SERIAL' in os.environ:
-            return
-        s.auto_use_lib(device.target())
-        s.auto_reorder(device.target())
-        s.auto_parallelize(device.target())
-        s.auto_set_mem_type(device.target())
-        s.auto_unroll(device.target())
+        pass
+        #s.auto_inline(device.target())
+        #s.auto_use_lib(device.target())
+        #s.auto_reorder(device.target())
+        #s.auto_parallelize(device.target())
+        #s.auto_set_mem_type(device.target())
+        #s.auto_unroll(device.target())
 
     def schedule_bwd(s):
-        if 'PAPER_SERIAL' in os.environ:
-            return
-        s.auto_use_lib(device.target())
-        s.auto_reorder(device.target())
+        pass
+        #s.auto_inline(device.target())
+        #s.auto_use_lib(device.target())
+        #s.auto_reorder(device.target())
         #s.reorder(['$grad{L_fn}', '$grad{L_pn}'],
         #          ft.ReorderMode.MoveOutImperfect)
-        s.auto_parallelize(device.target())
-        s.auto_set_mem_type(device.target())
-        s.auto_unroll(device.target())
+        #s.auto_parallelize(device.target())
+        #s.auto_set_mem_type(device.target())
+        #s.auto_unroll(device.target())
 
     print("# Forward:")
     print(forward)
@@ -613,17 +610,21 @@ with device:
         return color
 
 
-d_soft_colors = ft.array(
-    np.ones((batch_size, 4, image_size, image_size), dtype="float32"))
+    #our_render_main_original = ft.optimize(our_render_main_original)
+
+#d_soft_colors = ft.array(
+#    np.ones((batch_size, 4, image_size, image_size), dtype="float32"))
 
 
-def our_render(faces, textures):
+
+def our_render(faces, textures, d_soft_colors):
     """
         faces[batch_size][num_faces][3(vertices)][3(xyz)]
         textures[batch_size][num_faces][texture_size][3]
         inv[batch_size][num_faces][3][3]
     """
     soft_colors = init_background_color()
+    #our_render_main_original(faces, textures, soft_colors)
     forward_exe(faces, textures, soft_colors)
 
     d_faces = ft.array(np.empty(faces.shape, dtype="float32"))
@@ -639,64 +640,47 @@ def main():
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
     data_dir = current_dir
-    #parser = argparse.ArgumentParser()
-    #parser.add_argument('-o',
-    #                    '--output-dir',
-    #                    type=str,
-    #                    default=os.path.join(data_dir, 'newnew'))
-    #
-    #args = parser.parse_args()
-    #os.makedirs(args.output_dir, exist_ok=True)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('-o',
+                        '--output-dir',
+                        type=str,
+                        default=os.path.join(data_dir, 'newnew'))
 
-    # draw object from different view
-    #loop = tqdm.tqdm(list(range(0, 360, 4)))
+    args = parser.parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
+
     #writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation.gif'),
     #                            mode='I')
 
-    warmup_num = 3
-    repeat_num = 1000
+    warmup_num = 1
+    repeat_num = 3
 
-    #face_vertices = []
-    #face_textures = []
+    faces = ft.array(load_txt("./data_new/iter2023_b1_i64_n1280_t1/faces.txt", "float32"))
+    textures = ft.array(load_txt("./data_new/iter2023_b1_i64_n1280_t1/textures.txt", "float32"))
+    d_soft_colors = ft.array(load_txt("./data_new/iter2023_b1_i64_n1280_t1/grad_soft_colors.txt", "float32"))
 
     for i in range(warmup_num):
-        #loop = tqdm.tqdm(list(range(0, 360, 4)))
-        #for num, azimuth in enumerate(loop):
-            #loop.set_description('Drawing rotation')
+        images, d_faces, d_textures = our_render(faces, textures, d_soft_colors)
 
         if i == 0:
-            face_vertices = load_txt(f"./data/face_vertices{angle}", "float32")
-            face_textures = load_txt(f"./data/face_textures{angle}", "float32")
-
-        images, d_faces, d_textures = our_render(face_vertices,
-                                                 face_textures)
-
-        if i == 0:
-            store_txt(f"./result/d_faces{angle}_{image_size}.txt", d_faces)
-            store_txt(f"./result/d_textures{angle}_{image_size}.txt",
-                      d_textures)
+            store_txt(f"./result/iter2023_b1_i64_n1280_t1/images.txt", images)
+            store_txt(f"./result/iter2023_b1_i64_n1280_t1/d_faces.txt", d_faces)
+            store_txt(f"./result/iter2023_b1_i64_n1280_t1/d_textures.txt", d_textures)
             #image = images[0].transpose((1, 2, 0))
             #writer.append_data((255 * image).astype(np.uint8))
-            #break
-        #if i == 0:
             #writer.close()
 
     tot_time = 0.
-    timed_rounds = 0
+    timed_num = 0
     for i in range(repeat_num):
-        #loop = tqdm.tqdm(list(range(0, 360, 4)))
-        #for num, azimuth in enumerate(loop):
-            #loop.set_description('Drawing rotation')
         t0 = time.time()
-        images = our_render(face_vertices, face_textures)
+        images, d_faces, d_textures = our_render(faces, textures, d_soft_colors)
         t1 = time.time()
         tot_time += t1 - t0
-        timed_rounds += 1
-        if tot_time > 60:
-            break
+        timed_num += 1
 
-    if repeat_num > 0:
-        print(f"Drawing Rotation Time = {tot_time / timed_rounds} s")
+    if timed_num > 0:
+        print(f"Drawing Rotation Time = {tot_time / timed_num * 1000} ms")
 
 
 if __name__ == '__main__':
